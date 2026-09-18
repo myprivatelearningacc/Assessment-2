@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Modern Furniture Co. AI Analytics Agent</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --border: #334155;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --primary: #38bdf8;
+      --primary-hover: #0284c7;
+      --accent-badge: #0369a1;
+      --warning: #fbbf24;
+      --success: #34d399;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      display: flex;
+      justify-content: center;
+      padding: 40px 20px;
+      min-height: 100vh;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 860px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    header {
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 16px;
+    }
+
+    h1 {
+      font-size: 1.6rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: #ffffff;
+    }
+
+    .subtitle {
+      font-size: 0.88rem;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+    }
+
+    label {
+      display: block;
+      font-size: 0.85rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      margin-bottom: 10px;
+    }
+
+    /* Upload Styling */
+    .upload-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    @media (max-width: 600px) {
+      .upload-grid { grid-template-columns: 1fr; }
+    }
+
+    .file-drop {
+      border: 1px dashed var(--border);
+      background: #0f172a;
+      border-radius: 8px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .file-drop span {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    input[type="file"] {
+      font-size: 0.8rem;
+      color: #cbd5e1;
+    }
+
+    /* Validation Panel */
+    .validation-panel {
+      margin-top: 16px;
+      padding: 16px;
+      background: #0f172a;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      display: none;
+    }
+
+    .validation-title {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--success);
+      font-weight: 600;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .validation-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      gap: 10px;
+    }
+
+    .val-item {
+      background: #1e293b;
+      padding: 8px 12px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .val-label {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      display: block;
+    }
+
+    .val-value {
+      font-size: 1rem;
+      font-weight: 700;
+      color: #f8fafc;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* Question Input */
+    .input-group {
+      display: flex;
+      gap: 12px;
+    }
+
+    input[type="text"] {
+      flex: 1;
+      background: #0f172a;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 16px;
+      color: #fff;
+      font-size: 0.95rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    input[type="text"]:focus {
+      border-color: var(--primary);
+    }
+
+    button.btn-primary {
+      background: var(--primary);
+      color: #0f172a;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 0.95rem;
+      cursor: pointer;
+      transition: background-color 0.2s;
+      white-space: nowrap;
+    }
+
+    button.btn-primary:hover {
+      background: var(--primary-hover);
+      color: #fff;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .examples {
+      margin-top: 14px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .examples-label {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    .chip {
+      background: rgba(56, 189, 248, 0.1);
+      border: 1px solid rgba(56, 189, 248, 0.25);
+      color: var(--primary);
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .chip:hover {
+      background: rgba(56, 189, 248, 0.2);
+    }
+
+    /* Response Panel */
+    .response-card {
+      display: none;
+      flex-direction: column;
+      gap: 20px;
+      border-left: 4px solid var(--primary);
+    }
+
+    .response-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 12px;
+    }
+
+    .intent-badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.8rem;
+      font-weight: 600;
+      background: var(--accent-badge);
+      color: #e0f2fe;
+      padding: 4px 10px;
+      border-radius: 4px;
+      text-transform: lowercase;
+    }
+
+    .section-title {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+      font-weight: 600;
+    }
+
+    .direct-answer {
+      font-size: 1.1rem;
+      line-height: 1.5;
+      font-weight: 600;
+      color: #f1f5f9;
+    }
+
+    .meta-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 14px;
+      background: #0f172a;
+      padding: 16px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+
+    .meta-item p {
+      font-size: 0.88rem;
+      color: #cbd5e1;
+      line-height: 1.4;
+    }
+
+    .limitation-item {
+      border-left: 3px solid var(--warning);
+      padding-left: 10px;
+    }
+
+    .limitation-item p {
+      color: #fef08a;
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid #0f172a;
+      border-radius: 50%;
+      border-top-color: transparent;
+      animation: spin 0.8s linear infinite;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <header>
+    <h1>Modern Furniture Co. AI Analytics Agent</h1>
+    <p class="subtitle">Dynamic Proof-of-Concept Management Intelligence Agent</p>
+  </header>
+
+  <!-- Upload Section -->
+  <div class="card">
+    <label>1. Upload Dataset CSV Files</label>
+    <div class="upload-grid">
+      <div class="file-drop">
+        <span>orders_data.csv</span>
+        <input type="file" id="ordersFileInput" accept=".csv" />
+      </div>
+      <div class="file-drop">
+        <span>financial_ledger.csv</span>
+        <input type="file" id="ledgerFileInput" accept=".csv" />
+      </div>
+    </div>
+    <button class="btn-primary" id="uploadBtn" onclick="uploadDatasets()">Compute Analytics</button>
+
+    <!-- Compact Validation Panel -->
+    <div class="validation-panel" id="validationPanel">
+      <div class="validation-title">✓ Verified Ground-Truth Calculated Metrics</div>
+      <div class="validation-grid">
+        <div class="val-item">
+          <span class="val-label">Total Inquiries</span>
+          <span class="val-value" id="valTotalInquiries">-</span>
+        </div>
+        <div class="val-item">
+          <span class="val-label">Accepted Orders</span>
+          <span class="val-value" id="valAcceptedOrders">-</span>
+        </div>
+        <div class="val-item">
+          <span class="val-label">Delivered Orders</span>
+          <span class="val-value" id="valDeliveredOrders">-</span>
+        </div>
+        <div class="val-item">
+          <span class="val-label">On-Time Delivered</span>
+          <span class="val-value" id="valOnTimeOrders">-</span>
+        </div>
+        <div class="val-item">
+          <span class="val-label">Late Delivered</span>
+          <span class="val-value" id="valLateOrders">-</span>
+        </div>
+        <div class="val-item">
+          <span class="val-label">On-Time Rate</span>
+          <span class="val-value" id="valOnTimeRate">-</span>
+        </div>
+        <div class="val-item">
+          <span class="val-label">Active WIP</span>
+          <span class="val-value" id="valActiveWIP">-</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Question Input Card -->
+  <div class="card">
+    <label for="questionInput">2. Ask a management question</label>
+    <div class="input-group">
+      <input 
+        type="text" 
+        id="questionInput" 
+        placeholder="e.g., What percentage of deliveries were on time?" 
+        autocomplete="off"
+      />
+      <button class="btn-primary" id="askBtn" onclick="submitQuestion()">Ask Agent</button>
+    </div>
+
+    <div class="examples">
+      <span class="examples-label">Examples:</span>
+      <button class="chip" onclick="setQuestion('What percentage of deliveries were on time?')">Delivery On-Time %</button>
+      <button class="chip" onclick="setQuestion('Where are jobs piling up?')">Production Bottleneck</button>
+      <button class="chip" onclick="setQuestion('Which product contributes the most after material cost?')">Financial Contribution</button>
+      <button class="chip" onclick="setQuestion('What is the best employee?')">Unsupported Demo</button>
+    </div>
+  </div>
+
+  <!-- Response Panel -->
+  <div class="card response-card" id="responseCard">
+    <div class="response-header">
+      <span class="section-title">Analysis Result</span>
+      <span class="intent-badge" id="detectedIntent">intent</span>
+    </div>
+
+    <div>
+      <div class="section-title">Direct Answer</div>
+      <p class="direct-answer" id="directAnswer">-</p>
+    </div>
+
+    <div class="meta-grid">
+      <div class="meta-item">
+        <div class="section-title">Calculation Explanation</div>
+        <p id="calcExplanation">-</p>
+      </div>
+
+      <div class="meta-item">
+        <div class="section-title">Data Source</div>
+        <p id="dataSource">-</p>
+      </div>
+
+      <div class="meta-item limitation-item">
+        <div class="section-title" style="color: var(--warning);">Limitation</div>
+        <p id="limitation">-</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  let datasetsLoaded = false;
+
+  async function uploadDatasets() {
+    const ordersInput = document.getElementById('ordersFileInput');
+    const ledgerInput = document.getElementById('ledgerFileInput');
+    const uploadBtn = document.getElementById('uploadBtn');
+
+    if (!ordersInput.files[0] || !ledgerInput.files[0]) {
+      alert('Please select both orders_data.csv and financial_ledger.csv files.');
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('ordersFile', ordersInput.files[0]);
+    formData.append('ledgerFile', ledgerInput.files[0]);
+
+    uploadBtn.disabled = true;
+    uploadBtn.innerHTML = '<span class="spinner"></span> Parsing & Computing...';
+
+    try {
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        datasetsLoaded = true;
+        const v = data.validation;
+
+        document.getElementById('valTotalInquiries').textContent = Number(v.totalInquiries).toLocaleString();
+        document.getElementById('valAcceptedOrders').textContent = Number(v.acceptedOrders).toLocaleString();
+        document.getElementById('valDeliveredOrders').textContent = Number(v.deliveredOrders).toLocaleString();
+        document.getElementById('valOnTimeOrders').textContent = Number(v.onTimeOrders).toLocaleString();
+        document.getElementById('valLateOrders').textContent = Number(v.lateOrders).toLocaleString();
+        document.getElementById('valOnTimeRate').textContent = v.onTimeRate + '%';
+        document.getElementById('valActiveWIP').textContent = v.activeWIP;
+
+        document.getElementById('validationPanel').style.display = 'block';
+        uploadBtn.textContent = 'Datasets Loaded & Computed';
+      } else {
+        alert(data.error || 'Failed to upload files.');
+        uploadBtn.textContent = 'Compute Analytics';
+      }
+    } catch (err) {
+      alert('Connection error while uploading datasets.');
+      uploadBtn.textContent = 'Compute Analytics';
+    } finally {
+      uploadBtn.disabled = false;
+    }
+  }
+
+  function setQuestion(text) {
+    const input = document.getElementById('questionInput');
+    input.value = text;
+    input.focus();
+  }
+
+  document.getElementById('questionInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') submitQuestion();
+  });
+
+  async function submitQuestion() {
+    if (!datasetsLoaded) {
+      alert('Please upload and compute the datasets first.');
+      return;
+    }
+
+    const input = document.getElementById('questionInput');
+    const btn = document.getElementById('askBtn');
+    const responseCard = document.getElementById('responseCard');
+    const question = input.value.trim();
+
+    if (!question) return;
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Analyzing...';
+
+    try {
+      const res = await fetch('/api/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question })
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        document.getElementById('detectedIntent').textContent = data.detectedIntent;
+        document.getElementById('directAnswer').textContent = data.directAnswer;
+        document.getElementById('calcExplanation').textContent = data.calculationExplanation;
+        document.getElementById('dataSource').textContent = data.dataSource;
+        document.getElementById('limitation').textContent = data.limitation;
+
+        responseCard.style.display = 'flex';
+        responseCard.scrollIntoView({ behavior: 'smooth' });
+      } else {
+        alert(data.error || 'Server error.');
+      }
+    } catch (err) {
+      alert('Failed to connect to the agent server.');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Ask Agent';
+    }
+  }
+</script>
+
+</body>
+</html>
