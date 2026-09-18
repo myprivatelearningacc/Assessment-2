@@ -1,0 +1,1296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Modern Furniture Co. AI Analytics Agent</title>
+
+    <!-- Inter Google Font -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- Custom Tailwind Configuration (preset on window before CDN script loads) -->
+    <script>
+        window.tailwind = window.tailwind || {};
+        window.tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+                    },
+                    colors: {
+                        indigo: {
+                            50: '#eef2ff',
+                            100: '#e0e7ff',
+                            200: '#c7d2fe',
+                            500: '#6366f1',
+                            600: '#4f46e5',
+                            700: '#4338ca',
+                            800: '#3730a3',
+                            900: '#312e81',
+                        },
+                        brand: {
+                            50: '#f0f7ff',
+                            100: '#e0effe',
+                            500: '#0284c7',
+                            600: '#0369a1',
+                            700: '#075985',
+                            800: '#0c4a6e',
+                            900: '#0f172a'
+                        },
+                        amber: {
+                            50: '#fffbeb',
+                            100: '#fef3c7',
+                            500: '#f59e0b',
+                            600: '#d97706',
+                        }
+                    }
+                }
+            }
+        };
+    </script>
+
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- React & ReactDOM -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    
+    <!-- Babel for JSX compilation -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Chart.js for visualization -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- Papa Parse for RFC 4180 compliant CSV parsing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+
+    <style>
+        body {
+            font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background-color: #f8fafc;
+            color: #1e293b;
+        }
+        .scrollbar-thin::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        .scrollbar-thin::-webkit-scrollbar-thumb {
+            background-color: #cbd5e1;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body class="bg-slate-50/90 min-h-screen text-slate-800 antialiased font-sans selection:bg-slate-200">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo, useRef } = React;
+
+        const DATASET_KEYS = [
+            { id: 'orders', name: 'orders_data.csv', label: 'Orders Data', requiredFor: ['overview', 'delivery', 'financial'] },
+            { id: 'financial_ledger', name: 'financial_ledger.csv', label: 'Financial Ledger', requiredFor: ['financial'] },
+            { id: 'customers', name: 'customers_data.csv', label: 'Customers Data', requiredFor: [] },
+            { id: 'design_log', name: 'design_log.csv', label: 'Design Log', requiredFor: [] },
+            { id: 'hr_events_log', name: 'hr_events_log.csv', label: 'HR Events Log', requiredFor: [] },
+            { id: 'hr_roster', name: 'hr_roster.csv', label: 'HR Roster', requiredFor: [] },
+            { id: 'inventory_log', name: 'inventory_log.csv', label: 'Inventory Log', requiredFor: [] },
+        ];
+
+        const parseCSV = (csvText) => {
+            if (!csvText || !csvText.trim()) return [];
+            try {
+                const parsed = Papa.parse(csvText.trim(), {
+                    header: true,
+                    skipEmptyLines: 'greedy',
+                    dynamicTyping: false
+                });
+                return parsed.data || [];
+            } catch (err) {
+                console.error("CSV Parse Error:", err);
+                return [];
+            }
+        };
+
+        const useAnalyticsEngine = (datasets) => {
+            return useMemo(() => {
+                const orders = datasets.orders?.ready ? datasets.orders.data : [];
+                const ledger = datasets.financial_ledger?.ready ? datasets.financial_ledger.data : [];
+
+                const getStr = (r, ...keys) => {
+                    if (!r) return '';
+                    for (let k of keys) {
+                        if (r[k] !== undefined && r[k] !== null) return String(r[k]).trim();
+                    }
+                    const rKeys = Object.keys(r);
+                    for (let k of keys) {
+                        const target = k.toLowerCase().replace(/[^a-z0-9]/g, '');
+                        const found = rKeys.find(rk => rk.toLowerCase().replace(/[^a-z0-9]/g, '') === target);
+                        if (found && r[found] !== undefined && r[found] !== null) return String(r[found]).trim();
+                    }
+                    return '';
+                };
+
+                const getNum = (r, ...keys) => {
+                    const val = getStr(r, ...keys);
+                    const parsed = parseFloat(val.replace(/[^0-9.-]/g, ''));
+                    return isNaN(parsed) ? 0 : parsed;
+                };
+
+                const isAccepted = (r) => {
+                    const accDate = getStr(r, 'acceptanceDate', 'acceptance_date');
+                    return accDate !== '' && accDate.toLowerCase() !== 'null' && accDate.toLowerCase() !== 'nan' && accDate.toLowerCase() !== 'undefined';
+                };
+
+                // 1. Process Financial Ledger
+                let totalRevenue = 0;
+                let totalCosts = 0;
+                const revenueByOrderId = {};
+
+                ledger.forEach(row => {
+                    const amt = getNum(row, 'amount', 'total', 'value', 'credit', 'debit');
+                    const type = getStr(row, 'type', 'category', 'transaction_type').toLowerCase();
+                    const desc = getStr(row, 'description', 'memo', 'details', 'notes');
+
+                    if (type.includes('rev') || type.includes('income') || type.includes('sale') || amt > 0) {
+                        const revAmt = Math.abs(amt);
+                        totalRevenue += revAmt;
+
+                        const match = desc.match(/#?(\d+)/);
+                        if (match && match[1]) {
+                            const orderId = match[1];
+                            revenueByOrderId[orderId] = (revenueByOrderId[orderId] || 0) + revAmt;
+                        }
+                    } else if (type.includes('exp') || type.includes('cost') || type.includes('expense') || amt < 0) {
+                        totalCosts += Math.abs(amt);
+                    }
+                });
+
+                // 2. Process Orders Data
+                let totalInquiries = orders.length;
+                let acceptedCount = 0;
+                let deliveredCount = 0;
+                let onTimeCount = 0;
+                let lateCount = 0;
+                let totalLateDays = 0;
+                let activeProductionCount = 0;
+
+                const queueCongestion = { DESIGN: 0, MILLING: 0, JOINERY: 0, FINISHING: 0 };
+                const requiredWorkload = { designHours: 0, millingHours: 0, joineryHours: 0, finishingHours: 0 };
+                const productMap = {};
+
+                orders.forEach(r => {
+                    const accepted = isAccepted(r);
+                    if (accepted) acceptedCount++;
+
+                    const status = getStr(r, 'status', 'order_status').toUpperCase();
+                    const delStat = getStr(r, 'deliveryStatus', 'delivery_status').toLowerCase();
+                    const prodType = getStr(r, 'productType', 'product_type', 'product', 'category') || 'Other Furniture';
+                    const orderId = getStr(r, 'orderId', 'order_id', 'id');
+
+                    if (!productMap[prodType]) {
+                        productMap[prodType] = {
+                            productType: prodType,
+                            totalInquiries: 0,
+                            acceptedCount: 0,
+                            deliveredCount: 0,
+                            onTimeCount: 0,
+                            lateCount: 0,
+                            totalLateDays: 0,
+                            realisedRev: 0,
+                            directMatCost: 0
+                        };
+                    }
+                    const pStats = productMap[prodType];
+                    pStats.totalInquiries++;
+                    if (accepted) pStats.acceptedCount++;
+
+                    if (accepted) {
+                        requiredWorkload.designHours += getNum(r, 'designHours', 'design_hours');
+                        requiredWorkload.millingHours += getNum(r, 'millingHours', 'milling_hours');
+                        requiredWorkload.joineryHours += getNum(r, 'joineryHours', 'joinery_hours');
+                        requiredWorkload.finishingHours += getNum(r, 'finishingHours', 'finishing_hours');
+                    }
+
+                    if (['DESIGN', 'MILLING', 'JOINERY', 'FINISHING'].includes(status)) {
+                        queueCongestion[status] = (queueCongestion[status] || 0) + 1;
+                        activeProductionCount++;
+                    } else if (status.includes('WIP') || status.includes('PRODUCTION') || status.includes('IN_PROGRESS')) {
+                        activeProductionCount++;
+                    }
+
+                    if (status === 'DELIVERED') {
+                        deliveredCount++;
+                        pStats.deliveredCount++;
+
+                        const matCost = getNum(r, 'materialCost', 'material_cost', 'direct_material_cost');
+                        pStats.directMatCost += matCost;
+
+                        const linkedRev = revenueByOrderId[orderId] || 0;
+                        pStats.realisedRev += linkedRev;
+
+                        const daysLate = getNum(r, 'daysLate', 'days_late', 'delay_days', 'late_days');
+
+                        if (delStat === 'on time' || delStat === 'ontime') {
+                            onTimeCount++;
+                            pStats.onTimeCount++;
+                        } else if (delStat === 'late') {
+                            lateCount++;
+                            pStats.lateCount++;
+                            const lateVal = daysLate > 0 ? daysLate : 1;
+                            totalLateDays += lateVal;
+                            pStats.totalLateDays += lateVal;
+                        }
+                    }
+                });
+
+                const onTimeDeliveryRate = deliveredCount > 0 ? (onTimeCount / deliveredCount) * 100 : 0;
+                const avgLateDaysOverall = lateCount > 0 ? totalLateDays / lateCount : 0;
+
+                const productStats = {};
+                Object.keys(productMap).forEach(key => {
+                    const p = productMap[key];
+                    const pOnTimeRate = p.deliveredCount > 0 ? (p.onTimeCount / p.deliveredCount) * 100 : 0;
+                    const pLateRate = p.deliveredCount > 0 ? (p.lateCount / p.deliveredCount) * 100 : 0;
+                    const pAvgLateDays = p.lateCount > 0 ? p.totalLateDays / p.lateCount : 0;
+                    const grossContribution = p.realisedRev - p.directMatCost;
+
+                    productStats[key] = {
+                        ...p,
+                        onTimeRate: pOnTimeRate,
+                        lateRate: pLateRate,
+                        avgLateDays: pAvgLateDays,
+                        grossContribution: grossContribution
+                    };
+                });
+
+                let highestRiskProduct = null;
+                Object.values(productStats).forEach(p => {
+                    if (p.deliveredCount > 0) {
+                        if (!highestRiskProduct || p.lateRate > highestRiskProduct.lateRate) {
+                            highestRiskProduct = p;
+                        }
+                    }
+                });
+
+                let topQueueStage = 'DESIGN';
+                let maxQueue = -1;
+                Object.keys(queueCongestion).forEach(stage => {
+                    if (queueCongestion[stage] > maxQueue) {
+                        maxQueue = queueCongestion[stage];
+                        topQueueStage = stage;
+                    }
+                });
+
+                return {
+                    overview: {
+                        totalInquiries,
+                        acceptedCount,
+                        deliveredCount,
+                        onTimeCount,
+                        lateCount,
+                        onTimeDeliveryRate,
+                        avgLateDaysOverall,
+                        activeProductionCount,
+                        totalRevenue,
+                        totalCosts
+                    },
+                    productStats,
+                    highestRiskProduct,
+                    bottlenecks: {
+                        queueCongestion,
+                        topQueueStage,
+                        requiredWorkload
+                    }
+                };
+            }, [datasets]);
+        };
+
+        const DatasetUploaderCard = ({ datasetKey, datasetInfo, onFileUpload }) => {
+            const handleFileChange = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (evt) => {
+                    onFileUpload(datasetKey, file.name, evt.target.result);
+                };
+                reader.readAsText(file);
+            };
+
+            const isReady = datasetInfo?.ready;
+
+            return (
+                <div className={`p-4 rounded-xl border transition-all duration-200 flex flex-col justify-between ${
+                    isReady 
+                        ? 'bg-emerald-50/40 border-emerald-200/80 shadow-2xs' 
+                        : 'bg-white border-slate-200/80 hover:border-slate-300 shadow-2xs'
+                }`}>
+                    <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                            <h4 className="text-xs font-bold text-slate-900 tracking-tight">{datasetKey.name}</h4>
+                            {isReady ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-100/80 text-emerald-800 border border-emerald-200/60">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                                    Ready
+                                </span>
+                            ) : (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-slate-100 text-slate-600 border border-slate-200/60">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+                                    Pending
+                                </span>
+                            )}
+                        </div>
+                        <p className="text-[11px] text-slate-500 font-medium mb-3">{datasetKey.label}</p>
+                    </div>
+
+                    <div className="flex items-center justify-between text-xs pt-3 border-t border-slate-100/80 mt-1">
+                        <div className="space-y-0.5">
+                            <p className="text-slate-600 font-mono text-[11px] truncate max-w-[140px]">
+                                {isReady ? datasetInfo.fileName : 'No file loaded'}
+                            </p>
+                            <p className="text-[11px] text-slate-400 font-medium">
+                                {isReady ? `${datasetInfo.rowCount.toLocaleString()} rows parsed` : '0 rows'}
+                            </p>
+                        </div>
+
+                        <label className="cursor-pointer bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-semibold px-3 py-1.5 rounded-lg transition-all shadow-2xs active:scale-95 inline-flex items-center">
+                            <span>{isReady ? 'Replace' : 'Upload'}</span>
+                            <input 
+                                type="file" 
+                                accept=".csv" 
+                                className="hidden" 
+                                onChange={handleFileChange}
+                            />
+                        </label>
+                    </div>
+                </div>
+            );
+        };
+
+        const MissingDatasetBanner = ({ message = "Required dataset not uploaded." }) => (
+            <div className="bg-amber-50/60 border border-amber-200/80 border-l-4 border-l-amber-500 p-5 rounded-xl shadow-2xs my-6">
+                <span className="text-[10px] font-bold text-amber-900/70 uppercase tracking-wider block mb-1">DATA RECOVERY REQUIRED</span>
+                <h3 className="text-xs font-bold text-amber-950 uppercase tracking-wider">{message}</h3>
+                <p className="text-xs text-amber-900/80 mt-1 leading-relaxed">
+                    Please upload the required CSV file using the upload controls in the Executive Overview or "Data Sources & Rules" tab to generate real analytics.
+                </p>
+            </div>
+        );
+
+        const ValidationSummaryCard = ({ orders }) => {
+            if (!orders || orders.length === 0) return null;
+
+            const getStr = (obj, key) => (obj[key] !== undefined && obj[key] !== null) ? String(obj[key]).trim() : '';
+
+            const isAccepted = (r) => {
+                const accDate = getStr(r, 'acceptanceDate') || getStr(r, 'acceptance_date');
+                return accDate !== '' && accDate.toLowerCase() !== 'null' && accDate.toLowerCase() !== 'nan' && accDate.toLowerCase() !== 'undefined';
+            };
+
+            const statusCounts = {};
+            let nonEmptyAcceptanceCount = 0;
+            let deliveredOnTime = 0;
+            let deliveredLate = 0;
+
+            orders.forEach(r => {
+                const rawStatus = getStr(r, 'status') || 'UNKNOWN';
+                const statusKey = rawStatus.toUpperCase();
+                statusCounts[statusKey] = (statusCounts[statusKey] || 0) + 1;
+
+                if (isAccepted(r)) {
+                    nonEmptyAcceptanceCount++;
+                }
+
+                if (statusKey === 'DELIVERED') {
+                    const delStat = (getStr(r, 'deliveryStatus') || getStr(r, 'delivery_status')).toLowerCase();
+                    if (delStat === 'on time' || delStat === 'ontime') {
+                        deliveredOnTime++;
+                    } else if (delStat === 'late') {
+                        deliveredLate++;
+                    }
+                }
+            });
+
+            return (
+                <div className="bg-white text-slate-800 p-6 rounded-xl border border-slate-200/80 shadow-2xs space-y-4">
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-3.5">
+                        <div>
+                            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900">
+                                CSV Parsing Validation Summary
+                            </h3>
+                            <p className="text-xs text-slate-500 mt-0.5">Derived dynamically from uploaded <code className="text-slate-800 bg-slate-100 px-1.5 py-0.5 rounded font-mono text-[11px]">orders_data.csv</code></p>
+                        </div>
+                        <span className="text-[11px] font-mono bg-slate-100 px-2.5 py-1 rounded-md text-slate-700 font-medium">
+                            PapaParse Engine
+                        </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-center">
+                        <div className="bg-slate-50/80 p-3.5 rounded-xl border border-slate-100">
+                            <span className="text-[11px] text-slate-500 block font-medium">Total Rows</span>
+                            <span className="text-xl font-extrabold text-slate-900 font-mono mt-0.5">{orders.length.toLocaleString()}</span>
+                        </div>
+                        <div className="bg-slate-50/80 p-3.5 rounded-xl border border-slate-100">
+                            <span className="text-[11px] text-slate-500 block font-medium">Acceptance Logged</span>
+                            <span className="text-xl font-extrabold text-emerald-600 font-mono mt-0.5">{nonEmptyAcceptanceCount.toLocaleString()}</span>
+                        </div>
+                        <div className="bg-slate-50/80 p-3.5 rounded-xl border border-slate-100">
+                            <span className="text-[11px] text-slate-500 block font-medium">Delivered (Total)</span>
+                            <span className="text-xl font-extrabold text-indigo-600 font-mono mt-0.5">{(statusCounts['DELIVERED'] || 0).toLocaleString()}</span>
+                        </div>
+                        <div className="bg-slate-50/80 p-3.5 rounded-xl border border-slate-100">
+                            <span className="text-[11px] text-slate-500 block font-medium">Delivered On Time</span>
+                            <span className="text-xl font-extrabold text-emerald-600 font-mono mt-0.5">{deliveredOnTime.toLocaleString()}</span>
+                        </div>
+                        <div className="bg-slate-50/80 p-3.5 rounded-xl border border-slate-100">
+                            <span className="text-[11px] text-slate-500 block font-medium">Delivered Late</span>
+                            <span className="text-xl font-extrabold text-rose-600 font-mono mt-0.5">{deliveredLate.toLocaleString()}</span>
+                        </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-100 text-xs">
+                        <span className="text-slate-500 font-semibold block mb-2 text-[11px] uppercase tracking-wider">Count by Status:</span>
+                        <div className="flex flex-wrap gap-2 font-mono text-[11px]">
+                            {Object.entries(statusCounts).map(([st, cnt]) => (
+                                <span key={st} className="bg-slate-50 px-2.5 py-1 rounded-md border border-slate-200/70 text-slate-700">
+                                    <strong className="text-slate-900 font-bold">{st}:</strong> {cnt.toLocaleString()}
+                                </span>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const ExecutiveOverview = ({ datasets, analytics, onFileUpload }) => {
+            const hasOrders = datasets.orders?.ready;
+            const overview = analytics?.overview;
+
+            return (
+                <div className="space-y-6">
+                    <div className="bg-white text-slate-900 p-6 rounded-xl shadow-2xs border border-slate-200/80 space-y-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+                            <div>
+                                <h2 className="text-sm font-bold text-slate-900 tracking-tight uppercase">
+                                    CSV Datasets Pipeline
+                                </h2>
+                                <p className="text-xs text-slate-500 mt-0.5">
+                                    Upload real CSV files below. Results are derived exclusively from parsed datasets.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5">
+                            {DATASET_KEYS.map(key => (
+                                <DatasetUploaderCard 
+                                    key={key.id}
+                                    datasetKey={key}
+                                    datasetInfo={datasets[key.id]}
+                                    onFileUpload={onFileUpload}
+                                />
+                            ))}
+                        </div>
+                    </div>
+
+                    {hasOrders && (
+                        <ValidationSummaryCard orders={datasets.orders.data} />
+                    )}
+
+                    {!hasOrders ? (
+                        <MissingDatasetBanner message="Required dataset not uploaded. (orders_data.csv is required for Executive Overview)" />
+                    ) : (
+                        <>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                                <div className="bg-white p-5 rounded-xl border border-slate-200/80 shadow-2xs">
+                                    <div className="flex items-center justify-between text-slate-500 mb-2">
+                                        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Total Inquiries</span>
+                                    </div>
+                                    <div className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">{overview.totalInquiries.toLocaleString()}</div>
+                                    <p className="text-xs text-slate-400 mt-2 font-mono">Row count of orders_data.csv</p>
+                                </div>
+
+                                <div className="bg-white p-5 rounded-xl border border-slate-200/80 shadow-2xs">
+                                    <div className="flex items-center justify-between text-slate-500 mb-2">
+                                        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Accepted Orders</span>
+                                    </div>
+                                    <div className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">{overview.acceptedCount.toLocaleString()}</div>
+                                    <p className="text-xs text-emerald-600 mt-2 font-semibold">
+                                        {overview.totalInquiries > 0 ? ((overview.acceptedCount / overview.totalInquiries) * 100).toFixed(1) : '0.0'}% Conversion Rate
+                                    </p>
+                                </div>
+
+                                <div className="bg-white p-5 rounded-xl border border-slate-200/80 shadow-2xs">
+                                    <div className="flex items-center justify-between text-slate-500 mb-2">
+                                        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Delivered Orders</span>
+                                    </div>
+                                    <div className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">{overview.deliveredCount.toLocaleString()}</div>
+                                    <p className="text-xs text-slate-400 mt-2 font-mono">status == "DELIVERED"</p>
+                                </div>
+
+                                <div className="bg-white p-5 rounded-xl border border-slate-200/80 shadow-2xs">
+                                    <div className="flex items-center justify-between text-slate-500 mb-2">
+                                        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">On-Time Delivery Rate</span>
+                                    </div>
+                                    <div className="text-2xl sm:text-3xl font-extrabold text-indigo-600 tracking-tight">{overview.onTimeDeliveryRate.toFixed(1)}%</div>
+                                    <p className="text-xs text-slate-500 mt-2 font-medium">
+                                        {overview.onTimeCount} On Time / {overview.deliveredCount} Delivered
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <div className="bg-white p-5 rounded-xl border border-slate-200/80 shadow-2xs space-y-1.5">
+                                    <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Late Delivered Orders</div>
+                                    <div className="text-xl font-extrabold text-rose-600 tracking-tight">{overview.lateCount} Orders</div>
+                                    <div className="text-xs text-slate-500 font-medium">Avg {overview.avgLateDaysOverall.toFixed(1)} days late for affected orders</div>
+                                </div>
+
+                                <div className="bg-white p-5 rounded-xl border border-slate-200/80 shadow-2xs space-y-1.5">
+                                    <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Active Production WIP</div>
+                                    <div className="text-xl font-extrabold text-amber-600 tracking-tight">{overview.activeProductionCount} Orders</div>
+                                    <div className="text-xs text-slate-500 font-medium">Currently in Design, Milling, Joinery, or Finishing</div>
+                                </div>
+
+                                <div className="bg-white p-5 rounded-xl border border-slate-200/80 shadow-2xs space-y-1.5">
+                                    <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Financial Ledger Overview</div>
+                                    {datasets.financial_ledger?.ready ? (
+                                        <>
+                                            <div className="text-xl font-extrabold text-slate-900 tracking-tight">
+                                                <span className="text-emerald-600">${overview.totalRevenue.toLocaleString(undefined, {maximumFractionDigits: 2})}</span>
+                                                <span className="text-slate-300 mx-1.5">/</span>
+                                                <span className="text-slate-600">${overview.totalCosts.toLocaleString(undefined, {maximumFractionDigits: 2})}</span>
+                                            </div>
+                                            <div className="text-xs text-slate-500 font-medium">Total Revenue / Costs from financial_ledger.csv</div>
+                                        </>
+                                    ) : (
+                                        <p className="text-xs text-amber-800 bg-amber-50 p-2.5 rounded-lg border border-amber-200/80 mt-1">
+                                            Required dataset not uploaded (financial_ledger.csv).
+                                        </p>
+                                    )}
+                                </div>
+                            </div>
+                        </>
+                    )}
+                </div>
+            );
+        };
+
+        const DeliveryPerformance = ({ datasets, analytics }) => {
+            if (!datasets.orders?.ready || !analytics) {
+                return <MissingDatasetBanner message="Required dataset not uploaded. (orders_data.csv is required for Delivery Performance)" />;
+            }
+
+            const { productStats, overview, highestRiskProduct } = analytics;
+            const chartRef = useRef(null);
+            const chartInstance = useRef(null);
+            const productsList = Object.values(productStats);
+
+            useEffect(() => {
+                if (!chartRef.current || productsList.length === 0) return;
+                const ctx = chartRef.current.getContext('2d');
+
+                if (chartInstance.current) chartInstance.current.destroy();
+
+                chartInstance.current = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: productsList.map(p => p.productType),
+                        datasets: [
+                            {
+                                label: 'On-Time Delivered',
+                                data: productsList.map(p => p.onTimeCount),
+                                backgroundColor: '#10b981',
+                                borderRadius: 4
+                            },
+                            {
+                                label: 'Late Delivered',
+                                data: productsList.map(p => p.lateCount),
+                                backgroundColor: '#f43f5e',
+                                borderRadius: 4
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { position: 'top' } },
+                        scales: { x: { stacked: true }, y: { stacked: true } }
+                    }
+                });
+
+                return () => { if (chartInstance.current) chartInstance.current.destroy(); };
+            }, [productsList]);
+
+            return (
+                <div className="space-y-6">
+                    {highestRiskProduct && (
+                        <div className="bg-amber-50/80 border border-amber-200/80 border-l-4 border-l-amber-500 p-5 rounded-xl shadow-2xs">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-200/60 text-amber-900 mb-1">
+                                        RISK ALERT
+                                    </div>
+                                    <h3 className="text-sm font-bold text-amber-950 uppercase tracking-wider">Highest Late-Delivery Risk Product</h3>
+                                    <p className="text-base font-bold text-amber-900 mt-1">
+                                        {highestRiskProduct.productType} — {highestRiskProduct.lateRate.toFixed(1)}% Late Rate
+                                    </p>
+                                    <p className="text-xs text-amber-900/80 mt-0.5">
+                                        {highestRiskProduct.lateCount} out of {highestRiskProduct.deliveredCount} delivered products experienced delivery delays.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="bg-white p-6 rounded-xl border border-slate-200/80 shadow-2xs space-y-4">
+                        <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider">Delivered Orders Performance by Product Type</h3>
+                        <div className="h-64 relative">
+                            <canvas ref={chartRef}></canvas>
+                        </div>
+                    </div>
+
+                    <div className="bg-white rounded-xl border border-slate-200/80 shadow-2xs overflow-hidden">
+                        <div className="p-4 border-b border-slate-100 bg-slate-50/50">
+                            <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Product-Level Delivery Comparison Table</h3>
+                        </div>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left border-collapse text-xs">
+                                <thead>
+                                    <tr className="bg-slate-50/80 text-slate-500 text-[11px] uppercase font-semibold border-b border-slate-200/80">
+                                        <th className="p-3.5">Product Type</th>
+                                        <th className="p-3.5 text-right">Inquiries</th>
+                                        <th className="p-3.5 text-right">Accepted</th>
+                                        <th className="p-3.5 text-right">Delivered</th>
+                                        <th className="p-3.5 text-right">On-Time</th>
+                                        <th className="p-3.5 text-right">Late</th>
+                                        <th className="p-3.5 text-right">On-Time %</th>
+                                        <th className="p-3.5 text-right">Late %</th>
+                                        <th className="p-3.5 text-right">Avg Late Days</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                    {productsList.map((p, idx) => (
+                                        <tr key={p.productType} className={`${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'} hover:bg-slate-50 transition-colors`}>
+                                            <td className="p-3.5 font-bold text-slate-900">{p.productType}</td>
+                                            <td className="p-3.5 text-right text-slate-600">{p.totalInquiries}</td>
+                                            <td className="p-3.5 text-right text-slate-600">{p.acceptedCount}</td>
+                                            <td className="p-3.5 text-right font-medium text-slate-900">{p.deliveredCount}</td>
+                                            <td className="p-3.5 text-right text-emerald-600 font-semibold">{p.onTimeCount}</td>
+                                            <td className="p-3.5 text-right text-rose-600 font-semibold">{p.lateCount}</td>
+                                            <td className="p-3.5 text-right font-bold text-emerald-600">{p.onTimeRate.toFixed(1)}%</td>
+                                            <td className="p-3.5 text-right font-bold text-rose-600">{p.lateRate.toFixed(1)}%</td>
+                                            <td className="p-3.5 text-right font-medium text-slate-700">{p.avgLateDays.toFixed(1)} days</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const ProductionBottlenecks = ({ datasets, analytics }) => {
+            if (!datasets.orders?.ready || !analytics) return null;
+
+            const { bottlenecks, overview } = analytics;
+            const congestionChartRef = useRef(null);
+            const workloadChartRef = useRef(null);
+            const cChartInstance = useRef(null);
+            const wChartInstance = useRef(null);
+
+            const queueStages = Object.keys(bottlenecks.queueCongestion);
+            const queueCounts = queueStages.map(s => bottlenecks.queueCongestion[s]);
+            const wl = bottlenecks.requiredWorkload;
+
+            useEffect(() => {
+                if (congestionChartRef.current) {
+                    const ctx = congestionChartRef.current.getContext('2d');
+                    if (cChartInstance.current) cChartInstance.current.destroy();
+
+                    cChartInstance.current = new Chart(ctx, {
+                        type: 'doughnut',
+                        data: {
+                            labels: queueStages.map(s => `${s} (${bottlenecks.queueCongestion[s]})`),
+                            datasets: [{
+                                data: queueCounts,
+                                backgroundColor: ['#ef4444', '#f59e0b', '#4f46e5', '#8b5cf6']
+                            }]
+                        },
+                        options: { responsive: true, maintainAspectRatio: false }
+                    });
+                }
+
+                if (workloadChartRef.current) {
+                    const ctx = workloadChartRef.current.getContext('2d');
+                    if (wChartInstance.current) wChartInstance.current.destroy();
+
+                    wChartInstance.current = new Chart(ctx, {
+                        type: 'bar',
+                        data: {
+                            labels: ['Design Hours', 'Milling Hours', 'Joinery Hours', 'Finishing Hours'],
+                            datasets: [{
+                                label: 'Required Hours',
+                                data: [wl.designHours, wl.millingHours, wl.joineryHours, wl.finishingHours],
+                                backgroundColor: ['#8b5cf6', '#ef4444', '#4f46e5', '#f59e0b'],
+                                borderRadius: 4
+                            }]
+                        },
+                        options: { responsive: true, maintainAspectRatio: false }
+                    });
+                }
+
+                return () => {
+                    if (cChartInstance.current) cChartInstance.current.destroy();
+                    if (wChartInstance.current) wChartInstance.current.destroy();
+                };
+            }, [bottlenecks, queueStages, queueCounts, wl]);
+
+            return (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+                    <div className="bg-white p-6 rounded-xl border border-slate-200/80 shadow-2xs space-y-4">
+                        <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider">Current Queue Congestion</h3>
+                        <div className="h-64 relative"><canvas ref={congestionChartRef}></canvas></div>
+                    </div>
+                    <div className="bg-white p-6 rounded-xl border border-slate-200/80 shadow-2xs space-y-4">
+                        <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider">Underlying Required Workload</h3>
+                        <div className="h-64 relative"><canvas ref={workloadChartRef}></canvas></div>
+                    </div>
+                </div>
+            );
+        };
+
+        const FinancialContribution = ({ datasets, analytics }) => {
+            const hasOrders = datasets.orders?.ready;
+            const hasLedger = datasets.financial_ledger?.ready;
+
+            if (!hasOrders || !hasLedger || !analytics) {
+                return (
+                    <MissingDatasetBanner 
+                        message="Required dataset not uploaded. (Both orders_data.csv and financial_ledger.csv are required for Financial Contribution)" 
+                    />
+                );
+            }
+
+            const { productStats } = analytics;
+            const chartRef = useRef(null);
+            const chartInstance = useRef(null);
+            const productsList = Object.values(productStats);
+
+            useEffect(() => {
+                if (!chartRef.current || productsList.length === 0) return;
+                const ctx = chartRef.current.getContext('2d');
+                if (chartInstance.current) chartInstance.current.destroy();
+
+                chartInstance.current = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: productsList.map(p => p.productType),
+                        datasets: [
+                            {
+                                label: 'Realised Revenue ($) [financial_ledger]',
+                                data: productsList.map(p => p.realisedRev),
+                                backgroundColor: '#4f46e5',
+                                borderRadius: 4
+                            },
+                            {
+                                label: 'Direct Material Cost ($) [orders_data]',
+                                data: productsList.map(p => p.directMatCost),
+                                backgroundColor: '#f43f5e',
+                                borderRadius: 4
+                            },
+                            {
+                                label: 'Gross Contribution ($)',
+                                data: productsList.map(p => p.grossContribution),
+                                backgroundColor: '#10b981',
+                                borderRadius: 4
+                            }
+                        ]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false }
+                });
+
+                return () => { if (chartInstance.current) chartInstance.current.destroy(); };
+            }, [productsList]);
+
+            return (
+                <div className="space-y-6">
+                    <div className="bg-amber-50/70 border border-amber-200/80 border-l-4 border-l-amber-500 p-5 rounded-xl shadow-2xs">
+                        <h3 className="text-xs font-bold text-amber-950 uppercase tracking-wider">Accounting Standard & Realised Revenue Methodology</h3>
+                        <p className="text-xs text-amber-900/90 mt-1 leading-relaxed">
+                            <strong>Gross Contribution After Direct Material Cost</strong> = Actual realised revenue aggregated from <code>financial_ledger.csv</code> (joined by extracted order ID from descriptions e.g. <code>#105</code>) minus direct material cost from <code>orders_data.csv</code> for delivered orders.
+                            <br />
+                            <strong>DO NOT call Gross Contribution "Profit".</strong> Labour wages and overheads are unallocated lump sums in <code>financial_ledger.csv</code> and are not tied to individual order records.
+                        </p>
+                    </div>
+
+                    <div className="bg-white p-6 rounded-xl border border-slate-200/80 shadow-2xs space-y-4">
+                        <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider">Financial Contribution by Product Type (Delivered Orders)</h3>
+                        <div className="h-64 relative"><canvas ref={chartRef}></canvas></div>
+                    </div>
+
+                    <div className="bg-white rounded-xl border border-slate-200/80 shadow-2xs overflow-hidden">
+                        <div className="p-4 border-b border-slate-100 bg-slate-50/50">
+                            <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Gross Contribution Table</h3>
+                        </div>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left border-collapse text-xs">
+                                <thead>
+                                    <tr className="bg-slate-50/80 text-slate-500 text-[11px] uppercase font-semibold border-b border-slate-200/80">
+                                        <th className="p-3.5">Product Type</th>
+                                        <th className="p-3.5 text-right">Delivered Orders</th>
+                                        <th className="p-3.5 text-right">Realised Revenue (Ledger)</th>
+                                        <th className="p-3.5 text-right">Direct Material Cost</th>
+                                        <th className="p-3.5 text-right">Gross Contribution</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                    {productsList.map((p, idx) => (
+                                        <tr key={p.productType} className={`${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'} hover:bg-slate-50 transition-colors`}>
+                                            <td className="p-3.5 font-bold text-slate-900">{p.productType}</td>
+                                            <td className="p-3.5 text-right text-slate-600">{p.deliveredCount}</td>
+                                            <td className="p-3.5 text-right font-medium text-slate-900">${p.realisedRev.toLocaleString(undefined, {maximumFractionDigits:0})}</td>
+                                            <td className="p-3.5 text-right font-medium text-rose-600">${p.directMatCost.toLocaleString(undefined, {maximumFractionDigits:0})}</td>
+                                            <td className="p-3.5 text-right font-bold text-emerald-600">${p.grossContribution.toLocaleString(undefined, {maximumFractionDigits:0})}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const AIAgent = ({ datasets, analytics }) => {
+            const [query, setQuery] = useState('');
+            const [activeResponse, setActiveResponse] = useState(null);
+
+            const hasOrders = datasets.orders?.ready;
+            const hasLedger = datasets.financial_ledger?.ready;
+
+            const PRESET_QUESTIONS = [
+                "What percentage of deliveries were on time?",
+                "Which product should management investigate first for late delivery?",
+                "Where are jobs currently piling up in production?",
+                "Is the stage with the largest queue also the stage with the highest required workload?",
+                "Which product contributes the most revenue after direct material cost?"
+            ];
+
+            const processQuery = (customText = '') => {
+                const textToAnalyze = (customText || query).trim();
+                if (!textToAnalyze) return;
+
+                if (!hasOrders) {
+                    setActiveResponse({
+                        title: "Missing Required Datasets",
+                        directAnswer: "Required dataset not uploaded.",
+                        calculationExplanation: "Please upload orders_data.csv and financial_ledger.csv to execute AI management query analysis.",
+                        dataSource: "None",
+                        limitations: "Required dataset not uploaded."
+                    });
+                    return;
+                }
+
+                const { overview, productStats, highestRiskProduct, bottlenecks } = analytics;
+                const lower = textToAnalyze.toLowerCase();
+
+                // Intent routing logic across the 3 supported analytics domains
+                let intent = 'unknown';
+
+                if (
+                    lower.includes('investigate') || 
+                    (lower.includes('late') && (lower.includes('product') || lower.includes('investigate') || lower.includes('first') || lower.includes('which'))) ||
+                    lower.includes('highest late') || lower.includes('highest risk') || lower.includes('late-delivery rate')
+                ) {
+                    intent = 'delivery_late_product';
+                } else if (
+                    lower.includes('percentage of deliveries') || lower.includes('on time') || lower.includes('ontime') || 
+                    lower.includes('delivery rate') || lower.includes('delivered on time') || lower.includes('on-time rate') ||
+                    (lower.includes('percentage') && lower.includes('deliver'))
+                ) {
+                    intent = 'delivery_ontime_rate';
+                } else if (
+                    lower.includes('largest queue') || lower.includes('highest required workload') || 
+                    (lower.includes('workload') && lower.includes('queue')) || lower.includes('compare queue') || 
+                    lower.includes('queue also')
+                ) {
+                    intent = 'bottleneck_comparison';
+                } else if (
+                    lower.includes('piling up') || lower.includes('piling') || lower.includes('jobs currently') || 
+                    lower.includes('queue congestion') || lower.includes('where are jobs')
+                ) {
+                    intent = 'bottleneck_queue';
+                } else if (
+                    lower.includes('contributes') || lower.includes('direct material cost') || lower.includes('gross contribution') || 
+                    lower.includes('revenue after') || lower.includes('most revenue') || lower.includes('financial contribution') ||
+                    lower.includes('contribution')
+                ) {
+                    intent = 'financial_contribution';
+                } else if (lower.includes('delivery') || lower.includes('shipping')) {
+                    intent = 'delivery_ontime_rate';
+                } else if (lower.includes('bottleneck') || lower.includes('production') || lower.includes('wip') || lower.includes('queue')) {
+                    intent = 'bottleneck_queue';
+                } else if (lower.includes('revenue') || lower.includes('profit') || lower.includes('financial') || lower.includes('margin')) {
+                    intent = 'financial_contribution';
+                }
+
+                // Route to dynamic calculations based on parsed intent
+                if (intent === 'delivery_ontime_rate') {
+                    setActiveResponse({
+                        title: "On-Time Delivery Performance Analysis",
+                        directAnswer: `Our overall on-time delivery rate is ${overview.onTimeDeliveryRate.toFixed(1)}%. Out of ${overview.deliveredCount.toLocaleString()} total delivered orders, ${overview.onTimeCount.toLocaleString()} were delivered on time and ${overview.lateCount.toLocaleString()} were delivered late.`,
+                        calculationExplanation: `On-time delivery rate = (On-time Delivered Orders [${overview.onTimeCount}] / Total Delivered Orders [${overview.deliveredCount}]) * 100. Derived dynamically from orders_data.csv.`,
+                        dataSource: "orders_data.csv (status == 'DELIVERED')",
+                        limitations: "Non-delivered quotes and orders currently active in production are strictly excluded from the denominator."
+                    });
+                } else if (intent === 'delivery_late_product') {
+                    const lateRateText = highestRiskProduct 
+                        ? `${highestRiskProduct.productType} with a ${highestRiskProduct.lateRate.toFixed(1)}% late delivery rate (${highestRiskProduct.lateCount} late out of ${highestRiskProduct.deliveredCount} delivered orders, averaging ${highestRiskProduct.avgLateDays.toFixed(1)} days late).`
+                        : 'No product with late deliveries identified.';
+
+                    setActiveResponse({
+                        title: "Late Delivery Risk Analysis",
+                        directAnswer: `Management should investigate ${highestRiskProduct ? highestRiskProduct.productType : 'N/A'} first. It has the highest late-delivery rate at ${lateRateText}`,
+                        calculationExplanation: `Calculated by grouping delivered orders by productType, determining late delivery count (deliveryStatus == 'LATE'), and ranking by late percentage (Late Delivered / Total Delivered).`,
+                        dataSource: "orders_data.csv",
+                        limitations: "Product categories with zero delivered orders are excluded from late-rate ranking."
+                    });
+                } else if (intent === 'bottleneck_queue') {
+                    const queueCongestion = bottlenecks.queueCongestion || {};
+                    const totalQueueCount = Object.values(queueCongestion).reduce((a, b) => a + b, 0);
+                    const topQueueStage = bottlenecks.topQueueStage || 'N/A';
+                    const topQueueCount = queueCongestion[topQueueStage] || 0;
+                    const topQueuePct = totalQueueCount > 0 ? ((topQueueCount / totalQueueCount) * 100).toFixed(1) : '0.0';
+                    const breakdownStr = Object.entries(queueCongestion).map(([k, v]) => `${k}: ${v} orders`).join(', ');
+
+                    setActiveResponse({
+                        title: "Production Queue Congestion Analysis",
+                        directAnswer: `Jobs are currently piling up most at the ${topQueueStage} stage with ${topQueueCount} active orders, representing ${topQueuePct}% of all active WIP orders in the plant.`,
+                        calculationExplanation: `Queue counts are derived by filtering orders_data.csv for active WIP statuses [DESIGN, MILLING, JOINERY, FINISHING]. Breakdown across stages: ${breakdownStr}.`,
+                        dataSource: "orders_data.csv (status field)",
+                        limitations: "Queue counts measure unit volume of active orders in each stage, not individual job complexity or required labor hours."
+                    });
+                } else if (intent === 'bottleneck_comparison') {
+                    const queueCongestion = bottlenecks.queueCongestion || {};
+                    const totalQueueCount = Object.values(queueCongestion).reduce((a, b) => a + b, 0);
+                    const topQueueStage = bottlenecks.topQueueStage || 'N/A';
+                    const topQueueCount = queueCongestion[topQueueStage] || 0;
+                    const topQueuePct = totalQueueCount > 0 ? ((topQueueCount / totalQueueCount) * 100).toFixed(1) : '0.0';
+
+                    const wl = bottlenecks.requiredWorkload || { designHours: 0, millingHours: 0, joineryHours: 0, finishingHours: 0 };
+                    const workloadList = [
+                        { stage: 'DESIGN', hours: wl.designHours },
+                        { stage: 'MILLING', hours: wl.millingHours },
+                        { stage: 'JOINERY', hours: wl.joineryHours },
+                        { stage: 'FINISHING', hours: wl.finishingHours },
+                    ];
+                    let topWorkload = workloadList[0];
+                    let totalWorkloadHours = 0;
+                    workloadList.forEach(item => {
+                        totalWorkloadHours += item.hours;
+                        if (item.hours > topWorkload.hours) topWorkload = item;
+                    });
+                    const topWorkloadPct = totalWorkloadHours > 0 ? ((topWorkload.hours / totalWorkloadHours) * 100).toFixed(1) : '0.0';
+
+                    const isSameStage = topQueueStage.toUpperCase() === topWorkload.stage.toUpperCase();
+                    const answerPrefix = isSameStage 
+                        ? `Yes, ${topQueueStage} is both the stage with the largest queue and the highest required workload.`
+                        : `No, the stage with the largest queue (${topQueueStage} with ${topQueueCount} orders, ${topQueuePct}%) is different from the stage with the highest required workload (${topWorkload.stage} with ${topWorkload.hours.toLocaleString()} required hours, ${topWorkloadPct}%).`;
+
+                    setActiveResponse({
+                        title: "Queue Congestion vs. Required Workload Comparison",
+                        directAnswer: `${answerPrefix} Active queue count: ${topQueueStage} (${topQueueCount} orders). Cumulative required workload: ${topWorkload.stage} (${topWorkload.hours.toLocaleString()} hours out of ${totalWorkloadHours.toLocaleString()} total required labor hours).`,
+                        calculationExplanation: `Queue congestion counts active WIP orders per stage. Required workload sums designHours, millingHours, joineryHours, and finishingHours for all accepted orders from orders_data.csv.`,
+                        dataSource: "orders_data.csv (status and stage labor hour fields)",
+                        limitations: "Queue congestion reflects order volume in pipeline stage, whereas required workload reflects cumulative required labor hours across accepted orders."
+                    });
+                } else if (intent === 'financial_contribution') {
+                    if (!hasLedger) {
+                        setActiveResponse({
+                            title: "Financial Contribution Analysis",
+                            directAnswer: "Required dataset not uploaded. Please upload financial_ledger.csv to calculate financial contributions.",
+                            calculationExplanation: "financial_ledger.csv is required to compute actual realised revenue for delivered orders.",
+                            dataSource: "None",
+                            limitations: "Required dataset not uploaded."
+                        });
+                        return;
+                    }
+
+                    const pList = Object.values(productStats || {});
+                    let topProd = null;
+                    if (pList.length > 0) {
+                        topProd = pList[0];
+                        pList.forEach(p => { if (p.grossContribution > topProd.grossContribution) topProd = p; });
+                    }
+
+                    if (topProd) {
+                        setActiveResponse({
+                            title: "Financial Contribution Analysis",
+                            directAnswer: `${topProd.productType} contributes the most revenue after direct material cost, generating $${topProd.grossContribution.toLocaleString(undefined, {maximumFractionDigits:0})} in gross contribution ($${topProd.realisedRev.toLocaleString(undefined, {maximumFractionDigits:0})} realised revenue minus $${topProd.directMatCost.toLocaleString(undefined, {maximumFractionDigits:0})} direct material cost across ${topProd.deliveredCount} delivered orders).`,
+                            calculationExplanation: `Gross Contribution After Direct Material Cost = Realised revenue aggregated from financial_ledger.csv (joined via order ID #xxx in description) minus materialCost from orders_data.csv for delivered orders.`,
+                            dataSource: "orders_data.csv & financial_ledger.csv (joined via extracted order ID)",
+                            limitations: "Gross Contribution is NOT full accounting net profit. Labor wages and factory overhead in financial_ledger.csv are unallocated lump sums and not assigned to individual orders."
+                        });
+                    }
+                } else {
+                    setActiveResponse({
+                        title: "Analytics Scope Notice",
+                        directAnswer: "The current prototype supports queries covering delivery performance, production bottlenecks, and financial contribution.",
+                        calculationExplanation: "Your query could not be mapped to one of the three supported analytics domains: 1. Delivery performance (on-time rate, late delivery product risk), 2. Production bottlenecks (queue congestion vs required workload comparison), or 3. Financial contribution (gross contribution after direct material cost).",
+                        dataSource: "Modern Furniture Co. Analytics Rules",
+                        limitations: "Queries outside delivery performance, production bottlenecks, and financial contribution are outside the supported analytics scope."
+                    });
+                }
+            };
+
+            const handleCustomSubmit = (e) => {
+                e.preventDefault();
+                processQuery();
+            };
+
+            const handlePresetClick = (qText) => {
+                setQuery(qText);
+                processQuery(qText);
+            };
+
+            return (
+                <div className="space-y-6">
+                    <div className="bg-white p-6 rounded-xl border border-slate-200/80 shadow-2xs space-y-5">
+                        <div className="flex items-center justify-between border-b border-slate-100 pb-3.5">
+                            <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider">
+                                Ask the Analytics Agent
+                            </h2>
+                            <span className="text-[11px] font-semibold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-md border border-slate-200/60">
+                                Query Engine
+                            </span>
+                        </div>
+                        
+                        {!hasOrders && (
+                            <div className="p-3 bg-amber-50 text-amber-900 border border-amber-200/80 rounded-lg text-xs">
+                                Required dataset not uploaded. Upload orders_data.csv and financial_ledger.csv to execute AI management queries.
+                            </div>
+                        )}
+
+                        <form onSubmit={handleCustomSubmit} className="flex gap-2">
+                            <input 
+                                type="text"
+                                value={query}
+                                onChange={(e) => setQuery(e.target.value)}
+                                placeholder="Ask a manager question in plain English (e.g., What percentage of deliveries were on time?)..."
+                                className="flex-1 bg-slate-50 text-slate-800 text-xs sm:text-sm px-4 py-2.5 rounded-lg border border-slate-200 focus:outline-none focus:border-slate-400 focus:bg-white transition-all placeholder-slate-400 shadow-2xs"
+                            />
+                            <button 
+                                type="submit"
+                                className="bg-slate-900 hover:bg-slate-800 text-white text-xs sm:text-sm font-semibold px-5 py-2.5 rounded-lg transition-all shadow-2xs active:scale-95"
+                            >
+                                Ask Agent
+                            </button>
+                        </form>
+
+                        <div className="pt-2">
+                            <span className="text-[11px] text-slate-400 font-bold uppercase tracking-wider block mb-2">Example Natural-Language Questions:</span>
+                            <div className="flex flex-col gap-2">
+                                {PRESET_QUESTIONS.map((qText, idx) => (
+                                    <button 
+                                        key={idx}
+                                        onClick={() => handlePresetClick(qText)} 
+                                        className="text-left text-xs bg-slate-50 hover:bg-slate-100/80 p-3 rounded-lg border border-slate-200/70 text-slate-700 hover:text-slate-950 font-medium transition-all shadow-2xs flex items-center justify-between"
+                                    >
+                                        <span>{qText}</span>
+                                        <span className="text-slate-400 font-semibold text-[11px]">Ask</span>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+
+                    {activeResponse && (
+                        <div className="bg-white rounded-xl border border-slate-200/80 p-6 space-y-4 shadow-2xs">
+                            <div className="flex items-center justify-between border-b border-slate-100 pb-3.5">
+                                <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider">{activeResponse.title}</h3>
+                                <span className="text-[11px] font-medium text-slate-500 bg-slate-100 px-2.5 py-1 rounded-md border border-slate-200/60">
+                                    Source: {activeResponse.dataSource}
+                                </span>
+                            </div>
+
+                            <div className="bg-slate-50 border border-slate-200/70 p-4 rounded-lg">
+                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Direct Answer</span>
+                                <p className="text-xs sm:text-sm font-semibold text-slate-900 leading-relaxed">{activeResponse.directAnswer}</p>
+                            </div>
+
+                            <div className="space-y-1">
+                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Calculation Explanation</span>
+                                <p className="text-xs text-slate-700 bg-slate-50 p-3 rounded-lg border border-slate-200/60 leading-relaxed font-mono">
+                                    {activeResponse.calculationExplanation}
+                                </p>
+                            </div>
+
+                            <div className="bg-amber-50/80 border border-amber-200/80 border-l-4 border-l-amber-500 p-3 rounded-r-lg text-xs text-amber-950">
+                                <strong>Important Limitation:</strong> {activeResponse.limitations}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const DataQualityAndSources = ({ datasets, onFileUpload }) => {
+            return (
+                <div className="space-y-6">
+                    <div className="bg-white p-6 rounded-xl border border-slate-200/80 shadow-2xs space-y-6">
+                        <div>
+                            <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider">Uploaded Datasets Pipeline & Audit Status</h2>
+                            <p className="text-xs text-slate-500 mt-0.5">
+                                Status and row counts for all seven required operational datasets.
+                            </p>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {DATASET_KEYS.map(key => {
+                                const info = datasets[key.id];
+                                return (
+                                    <div key={key.id} className="p-4 bg-slate-50/50 rounded-xl border border-slate-200/80 space-y-3 shadow-2xs">
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <h3 className="font-bold text-slate-900 text-xs">{key.name}</h3>
+                                                <p className="text-[11px] text-slate-500 font-medium">{key.label}</p>
+                                            </div>
+                                            {info?.ready ? (
+                                                <span className="bg-emerald-100/80 text-emerald-800 px-2 py-0.5 rounded text-[11px] font-semibold border border-emerald-200/80">
+                                                    Ready
+                                                </span>
+                                            ) : (
+                                                <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded text-[11px] font-medium border border-slate-200/80">
+                                                    Pending
+                                                </span>
+                                            )}
+                                        </div>
+
+                                        <div className="text-[11px] text-slate-600 space-y-1 bg-white p-2.5 rounded-lg border border-slate-200/60 font-mono">
+                                            <p>Filename: <strong className="text-slate-900">{info?.fileName || 'None'}</strong></p>
+                                            <p>Row Count: <strong className="text-slate-900">{info?.rowCount ? info.rowCount.toLocaleString() : 0} rows</strong></p>
+                                        </div>
+
+                                        <DatasetUploaderCard 
+                                            datasetKey={key}
+                                            datasetInfo={info}
+                                            onFileUpload={onFileUpload}
+                                        />
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const App = () => {
+            const [activeTab, setActiveTab] = useState('overview');
+
+            const [datasets, setDatasets] = useState({
+                orders: { fileName: '', rawText: '', data: [], rowCount: 0, ready: false },
+                financial_ledger: { fileName: '', rawText: '', data: [], rowCount: 0, ready: false },
+                customers: { fileName: '', rawText: '', data: [], rowCount: 0, ready: false },
+                design_log: { fileName: '', rawText: '', data: [], rowCount: 0, ready: false },
+                hr_events_log: { fileName: '', rawText: '', data: [], rowCount: 0, ready: false },
+                hr_roster: { fileName: '', rawText: '', data: [], rowCount: 0, ready: false },
+                inventory_log: { fileName: '', rawText: '', data: [], rowCount: 0, ready: false },
+            });
+
+            const analytics = useAnalyticsEngine(datasets);
+
+            const handleFileUpload = (keyObj, fileName, csvContent) => {
+                const parsed = parseCSV(csvContent);
+                setDatasets(prev => ({
+                    ...prev,
+                    [keyObj.id]: {
+                        fileName: fileName,
+                        rawText: csvContent,
+                        data: parsed,
+                        rowCount: parsed.length,
+                        ready: parsed.length > 0
+                    }
+                }));
+            };
+
+            return (
+                <div className="min-h-screen flex flex-col bg-slate-50/90 text-slate-800">
+                    <header className="bg-white border-b border-slate-200/80 sticky top-0 z-50 shadow-2xs">
+                        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                            <div className="flex items-center justify-between h-14">
+                                <div className="flex items-center space-x-2.5">
+                                    <div className="w-7 h-7 bg-slate-900 rounded-lg flex items-center justify-center text-white font-extrabold text-sm tracking-tighter">
+                                        M
+                                    </div>
+                                    <div>
+                                        <h1 className="text-xs font-extrabold text-slate-900 uppercase tracking-wider leading-none">Modern Furniture Co.</h1>
+                                        <span className="text-[10px] text-slate-500 font-medium">AI Analytics Agent</span>
+                                    </div>
+                                </div>
+
+                                <nav className="flex space-x-1 sm:space-x-2">
+                                    {[
+                                        { id: 'overview', label: 'Executive Overview' },
+                                        { id: 'delivery', label: 'Delivery & Bottlenecks' },
+                                        { id: 'financial', label: 'Financial Contribution' },
+                                        { id: 'agent', label: 'Ask Agent' },
+                                        { id: 'data', label: 'Data Sources & Rules' }
+                                    ].map(tab => (
+                                        <button
+                                            key={tab.id}
+                                            onClick={() => setActiveTab(tab.id)}
+                                            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                                                activeTab === tab.id
+                                                    ? 'bg-slate-900 text-white shadow-2xs font-semibold'
+                                                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80'
+                                            }`}
+                                        >
+                                            {tab.label}
+                                        </button>
+                                    ))}
+                                </nav>
+                            </div>
+                        </div>
+                    </header>
+
+                    <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+                        {activeTab === 'overview' && (
+                            <ExecutiveOverview 
+                                datasets={datasets}
+                                analytics={analytics} 
+                                onFileUpload={handleFileUpload}
+                            />
+                        )}
+                        {activeTab === 'delivery' && (
+                            <div className="space-y-6">
+                                <DeliveryPerformance datasets={datasets} analytics={analytics} />
+                                <ProductionBottlenecks datasets={datasets} analytics={analytics} />
+                            </div>
+                        )}
+                        {activeTab === 'financial' && (
+                            <FinancialContribution datasets={datasets} analytics={analytics} />
+                        )}
+                        {activeTab === 'agent' && (
+                            <AIAgent datasets={datasets} analytics={analytics} />
+                        )}
+                        {activeTab === 'data' && (
+                            <DataQualityAndSources datasets={datasets} onFileUpload={handleFileUpload} />
+                        )}
+                    </main>
+
+                    <footer className="bg-white border-t border-slate-200/80 py-4 text-center text-[11px] text-slate-400 font-medium">
+                        Modern Furniture Co. AI Analytics Agent • Minimal SaaS Design System
+                    </footer>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
